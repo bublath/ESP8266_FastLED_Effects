@@ -3,8 +3,8 @@
 #define Serial_BAUDRATE 74880 // Arduino: 9600, ESP32: z.B. 115200
 
 // Comment #define and uncomment #undef to exclude DHT11 Sensor if you just want the LEDs
-#define ENABLE_DHT11 1
-//#undef ENABLE_DHT11
+//#define ENABLE_DHT11 1
+#undef ENABLE_DHT11
 
 // WiFi connectivity and webserver
 #include <ESP8266WiFi.h>
@@ -27,18 +27,24 @@ int rssi = -1;
 CRGBArray<NUM_LEDS> leds;
 uint8_t gHue = 0; // rotating "base color" used by many of the patterns
 #define FRAMES_PER_SECOND  120
+//Avoid getting to dark (or black) as this is perceived as a flicker
+#define FADE_MIN 4
+
+
+#define MAGIC_WORD 12567
 
 /* -------------------Some defaults----------------------------------------- */
 
 struct settings {
-  uint16_t magic=39523;
+  uint16_t magic=MAGIC_WORD;
   uint8_t mode = 0;  // Effect mode
   uint8_t speed = 10; // Speed setting for some modes
   uint8_t fade = 50;
+  uint8_t hue = 20;
   uint8_t col_r = 255;
   uint8_t col_g = 0;
   uint8_t col_b = 0;
-  uint8_t rbgmode = 0;
+  uint8_t rgbmode = 0;
   uint8_t endless = 1;
   uint8_t reverse = 0;
   uint8_t brightness = 255;
@@ -73,7 +79,9 @@ const char * html_head ="<html><head><style>\
                           }\
                           </style></head>\
                           <body onload=\"updateValues()\">\
-                          <p><h1>ESP8266 LED Effect Driver</h1></p>";
+                          <p><h1>ESP8266 LED Effect Driver</h1></p>\
+                         <p><h2 id=\"effect\">text</h2></p>";
+
 const char * html_table ="<table>\
                           <tr>\
                           <th>Brightness:</th>\
@@ -85,43 +93,52 @@ const char * html_table ="<table>\
                           <th>G<input id=\"col_g\" type=\"range\" onChange=\"sliderFunction(\'g\',this.value)\" min=\"0\" max=\"255\" value=\"0\"></th>\
                           </tr><tr>\
                           <th>Effect Speed:</th>\
-                          <th><input id=\"speed\" type=\"range\" onChange=\"sliderFunction(\'speed\',this.value)\" min=\"1\" max=\"200\" value=\"10\"></th>\
+                          <th><input id=\"speed\" type=\"range\" onChange=\"sliderFunction(\'speed\',this.value)\" min=\"1\" max=\"255\" value=\"10\"></th>\
                           <th>B<input id=\"col_b\" type=\"range\" onChange=\"sliderFunction(\'b\',this.value)\" min=\"0\" max=\"255\" value=\"0\"></th>\
                           </tr><tr>\
-                          <th>RGB mode<input type=\"checkbox\" onChange=\"sliderFunction('rbg',this.checked)\" id=\"rbg\"></th>\
+                          <th>Color change:</th>\
+                          <th><input id=\"hue\" type=\"range\" onChange=\"sliderFunction(\'hue\',this.value)\" min=\"1\" max=\"255\" value=\"10\"></th>\
+                          </tr><tr>\
+                          <th>RGB mode<input type=\"checkbox\" onChange=\"sliderFunction('rgb',this.checked)\" id=\"rgb\"></th>\
                           <th>Endless mode<input type=\"checkbox\" onChange=\"sliderFunction('endless',this.checked)\" id=\"endless\"></th>\
                           <th>Reverse<input type=\"checkbox\" onChange=\"sliderFunction('reverse',this.checked)\" id=\"reverse\"></th>\
                           </tr><tr>\
                           <td colspan=\"3\">Full parameter effects:</td>\
-                           </tr><tr>\
-                          <th><input type=\"button\" onclick=\"buttonFunction(1)\" class=\"button\" value=\"K.I.T.T\"></th>\
-                          <th><input type=\"button\" onclick=\"buttonFunction(14)\" class=\"button\" value=\"Sinelon\"></th>\
-                           </tr><tr>\
-                           <th><input type=\"button\" onclick=\"buttonFunction(3)\" class=\"button\" value=\"Mirror\"></th>\
-                          <th><input type=\"button\" onclick=\"buttonFunction(2)\" class=\"button\" value=\"Multiband\"></th>\
+                          </tr><tr>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(1,this.value)\" class=\"button\" value=\"K.I.T.T\"></th>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(7,this.value)\" class=\"button\" value=\"Sinelon\"></th>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(5,this.value)\" class=\"button\" value=\"Constant\"></th>\
+                          </tr><tr>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(3,this.value)\" class=\"button\" value=\"Mirror\"></th>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(2,this.value)\" class=\"button\" value=\"Multiband\"></th>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(6,this.value)\" class=\"button\" value=\"Constant Fade\"></th>\
                           </tr><tr>\
                           <td colspan=\"3\">Effects with variable speed/fade:</td>\
                           </tr><tr>\
-                          <th><input type=\"button\" onclick=\"buttonFunction(16)\" class=\"button\" value=\"Juggle\"><br></th>\
-                          <th><input type=\"button\" onclick=\"buttonFunction(15)\" class=\"button\" value=\"BPM\"></th>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(16,this.value)\" class=\"button\" value=\"Juggle\"><br></th>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(15,this.value)\" class=\"button\" value=\"BPM\"></th>\
                           </tr><tr>\
-                          <th><input type=\"button\" onclick=\"buttonFunction(13)\" class=\"button\" value=\"Confetti\"></th>\
-                          <th><input type=\"button\" onclick=\"buttonFunction(17)\" class=\"button\" value=\"Fire\"></th>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(13,this.value)\" class=\"button\" value=\"Confetti\"></th>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(8,this.value)\" class=\"button\" value=\"Fire\"></th>\
                           </tr><tr>\
                           <td colspan=\"3\">Static effects:</td>\
                           </tr><tr>\
-                          <th><input type=\"button\" onclick=\"buttonFunction(4)\" class=\"button\" value=\"Pride\"></th>\
-                          <th><input type=\"button\" onclick=\"buttonFunction(10)\" class=\"button\" value=\"Pacifica\"></th>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(4,this.value)\" class=\"button\" value=\"Pride\"></th>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(10,this.value)\" class=\"button\" value=\"Pacifica\"></th>\
                           </tr><tr>\
-                          <th><input type=\"button\" onclick=\"buttonFunction(11)\" class=\"button\" value=\"Rainbow\"></th>\
-                          <th><input type=\"button\" onclick=\"buttonFunction(12)\" class=\"button\" value=\"Rainbow with Glitter\"></th>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(11,this.value)\" class=\"button\" value=\"Rainbow\"></th>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(12,this.value)\" class=\"button\" value=\"Rainbow with Glitter\"></th>\
                           </tr><tr>\
                           <th></th>\
                           </tr><tr>\
                           <th><input type=\"button\" onclick=\"buttonFunction(100)\" class=\"button\" value=\"Save\"><br></th>\
-                          <th><input type=\"button\" onclick=\"buttonFunction(0)\" class=\"button\" value=\"OFF\"><br></th>\
+                          <th><input type=\"button\" onclick=\"buttonFunction(0,this.value)\" class=\"button\" value=\"OFF\"><br></th>\
                           </tr>";
+
+
 const char * html_script ="<script>\
+                            const effects=['OFF','K.I.T.T.','Multiband','Pride','Mirror','Constant','Constant Fade','Sinelon','Fire','',\
+                                          'Pacifica','Rainbow','Rainbow with Glitter','Confetti','','BPM','Juggle'];\
                             function updateValues() {\
                               const req = new XMLHttpRequest();\
                               req.open(\"GET\",\"/settings\");\
@@ -131,7 +148,7 @@ const char * html_script ="<script>\
                                   const status = req.status;\
                                   if (status == 200) {\
                                      var reply = JSON.parse(req.responseText);\
-                                     document.getElementById('rbg').checked=(reply.rbg==1?true:false);\
+                                     document.getElementById('rgb').checked=(reply.rgb==1?true:false);\
                                      document.getElementById('endless').checked=(reply.endless==1?true:false);\
                                      document.getElementById('reverse').checked=(reply.reverse==1?true:false);\
                                      document.getElementById('speed').value= reply.speed;\
@@ -140,15 +157,19 @@ const char * html_script ="<script>\
                                      document.getElementById('col_r').value = reply.col_r;\
                                      document.getElementById('col_g').value = reply.col_g;\
                                      document.getElementById('col_b').value = reply.col_b;\
+                                     document.getElementById('hue').value = reply.hue;\
+                                     document.getElementById('effect').innerHTML = 'Current effect: '+effects[reply.mode];\
                                   }\
                                 }\
                               };\
                             }\
-                            function buttonFunction(id) {\
+                            function buttonFunction(id,value) {\
                                const req = new XMLHttpRequest();\
                                req.open(\"POST\",\"/command?id=\"+id);\
                                req.send();\
                                updateValues();\
+                               if (id<100) {\
+                                document.getElementById('effect').innerHTML = 'Current effect: '+effects[id]; }\
                               return false;\
                             }\
                             function sliderFunction(name,val) {\
@@ -177,7 +198,7 @@ void setup() {
   uint16_t magic;
   EEPROM.get(0,magic);
   //Check magic word to make sure settings are valid
-  if (magic==49523) {
+  if (magic==MAGIC_WORD) {
     Serial.println("EEPROM valid, reading settings");
     EEPROM.get(0,mysets);
   }
@@ -259,21 +280,27 @@ void setup() {
       EEPROM.commit();
     } else {
       mysets.mode=newmode;
+      //Reset brightness as some effects change it
+      FastLED.setBrightness(mysets.brightness);
       // Set reasonable defaults
       switch (mysets.mode) {
-        case 0:  leds.fadeToBlackBy(5); break; // OFF
-        case 1:  mysets.speed=10; mysets.fade=50; break; // KITT
-        case 2:  mysets.speed=10; mysets.fade=50; break; // Multi
-        case 3:  mysets.speed=10; mysets.fade=50; break; // Mirror
+        case 0:  leds.fadeToBlackBy(5); break; //OFF
+        case 1:  mysets.speed=255; mysets.fade=50; 
+                 mysets.rgbmode=1; mysets.col_r=255; mysets.col_g=0; mysets.col_b=0;
+                 mysets.endless=0; break; // KITT
+        case 2:  mysets.speed=180; mysets.fade=50; mysets.rgbmode=0; break; // Multi
+        case 3:  mysets.speed=255; mysets.fade=50; mysets.rgbmode=0; mysets.endless=1; break; // Mirror
         case 4:  break; // Pride has no arguments to modify
+        case 5:  mysets.speed=50; break; // Constant
+        case 6:  mysets.speed=50; break; // ConstantFade
+        case 7:  sinus_init(); mysets.speed=100; mysets.fade=25; break; // Sinelon
+        case 8:  mysets.speed=140; mysets.fade=80; break; // Fire
         case 10: mysets.speed=50; break; // Pacifica
         case 11: mysets.speed=50; break; // Rainbow
         case 12: mysets.speed=50; break; // Rainbow with Glitter
-        case 13: mysets.fade=25; mysets.speed=74; break; // Confetti
-        case 14: sinus_init(); mysets.speed=100; mysets.fade=25; break; // Sinelon
-        case 15: mysets.speed=30; mysets.fade=30; break; // BPM
+        case 13: mysets.fade=20; mysets.speed=120; break; // Confetti
+        case 15: mysets.speed=90; mysets.fade=30; break; // BPM
         case 16: sinus_init(); mysets.speed=50; mysets.fade=30; break; // Juggle
-        case 17: mysets.speed=60; mysets.fade=80; break; // Fire
       }
     }
     server.send(200,"text/html","ok");
@@ -281,18 +308,21 @@ void setup() {
   server.on("/settings", []() {
   String reply="{\"speed\":\""+String(mysets.speed)+"\",\"fade\":\""+String(mysets.fade)+"\",";
   reply+="\"brightness\":\""+String(mysets.brightness)+"\",";
+  reply+="\"hue\":\""+String(mysets.hue)+"\",";
+  reply+="\"mode\":\""+String(mysets.mode)+"\",";
   reply+="\"col_r\":\""+String(mysets.col_r)+"\",\"col_g\":\""+String(mysets.col_g)+"\",\"col_b\":\""+String(mysets.col_b)+"\",";
-  reply+="\"rbg\":\""+String(mysets.rbgmode)+"\",\"endless\":\""+String(mysets.endless)+"\",\"reverse\":\""+String(mysets.reverse)+"\"}";
+  reply+="\"rgb\":\""+String(mysets.rgbmode)+"\",\"endless\":\""+String(mysets.endless)+"\",\"reverse\":\""+String(mysets.reverse)+"\"}";
   Serial.println(reply);
   server.send(200,"text/html",reply);
   });
   server.on("/slider", []() { //Define the handling function for the javascript path
     mysets.speed=set_arg(mysets.speed,server.arg("speed"));
     mysets.fade=set_arg(mysets.fade,server.arg("fade"));
+    mysets.hue=set_arg(mysets.hue,server.arg("hue"));
     mysets.col_r=set_arg(mysets.col_r,server.arg("r"));
     mysets.col_g=set_arg(mysets.col_g,server.arg("g"));
     mysets.col_b=set_arg(mysets.col_b,server.arg("b"));
-    mysets.rbgmode=set_arg(mysets.rbgmode,server.arg("rbg"));
+    mysets.rgbmode=set_arg(mysets.rgbmode,server.arg("rgb"));
     mysets.endless=set_arg(mysets.endless,server.arg("endless"));
     mysets.reverse=set_arg(mysets.reverse,server.arg("reverse"));
     String my_brightness=server.arg("brightness");
@@ -361,6 +391,7 @@ void loop() {
 }
 
 int sec=0;
+int mil=0;
 
 #ifdef ENABLE_DHT11
 // Update Temperature and Humidity
@@ -388,7 +419,7 @@ void handle_dht11() {
 void handle_led() {
 
   CRGB col;
-  if (mysets.rbgmode==1) {
+  if (mysets.rgbmode==1) {
     col=CRGB(mysets.col_r,mysets.col_g,mysets.col_b);
   } else {
     col=CHSV( gHue, 255, 192);
@@ -405,26 +436,23 @@ void handle_led() {
     case 2: Multi(col,mysets.reverse==0?1:-1); break;
     case 3: Mirror(col); break;
     case 4: pride(); break;
+    case 5: Constant(col); break;
+    case 6: ConstantFade(col); break;
+    case 7: sinelon(col); break;
+    case 8: Fire(0,-50);Fire(50,50);Fire(100,-50);Fire(150,50);Fire(200,-50); Fire(250,50); break;
     case 10: pacifica_loop(); break;
     case 11: rainbow(); break;
     case 12: rainbowWithGlitter(); break;
     case 13: confetti(); break;
-    case 14: sinelon(col); break;
     case 15: bpm(); break;
     case 16: juggle(); break;
-    case 17: Fire(0,-50);Fire(50,50);Fire(100,-50);Fire(150,50);Fire(200,-50); Fire(250,50); break;
+
   }
-  
-  // Modes 1-5 are self contained
-  // Modes 4-10 need this to work
-  if (mysets.mode>=10) {
-    FastLED.show();  
-    // insert a delay to keep the framerate modest
-    //FastLED.delay(1000/FRAMES_PER_SECOND); 
-    FastLED.delay(1000/mysets.speed/3);    
-    // do some periodic updates
+
+  if (mil<millis()) {
+    mil=millis()+mysets.hue; 
+    gHue++; // slowly cycle the "base color" through the rainbow
   }
-  EVERY_N_MILLISECONDS( 20 ) { gHue++; } // slowly cycle the "base color" through the rainbow
 
 }
 
@@ -451,7 +479,7 @@ void Mirror(CRGB col){
   leds.fadeToBlackBy(mysets.fade);
   leds[pos] = col;
   leds(NUM_LEDS/2,NUM_LEDS-1) = leds(NUM_LEDS/2 - 1 ,0);
-  FastLED.delay(mysets.speed);
+  FastLED.delay(256-mysets.speed);
 }
 
 // Multiple streams that get more when fade is set faster (so the LED strip is still pretty filled)
@@ -469,7 +497,7 @@ void Multi(CRGB col,int dir) {
   for (int i=0;i<NUM_LEDS;i+=step) {
     leds[abs(pos+i)%(NUM_LEDS-1)]= col;
   }
-  FastLED.delay(mysets.speed);
+  FastLED.delay(256-mysets.speed);
 }
 
 // Classical Knight Rider effect, but with different modes, directions, speed and colors
@@ -484,7 +512,7 @@ void KITT(CRGB col) {
   }
   leds.fadeToBlackBy(mysets.fade);
   leds[pos]= col;
-  FastLED.delay(mysets.speed);
+  FastLED.delay(256-mysets.speed);
 }
 
 void KITT2(CRGB col, int dir) {
@@ -497,53 +525,41 @@ void KITT2(CRGB col, int dir) {
   }
   leds.fadeToBlackBy(mysets.fade);
   leds[pos]= col;
+  FastLED.delay(256-mysets.speed);
+}
+
+void Constant(CRGB col) {
+  for (int i=0;i<NUM_LEDS;i++) {
+    leds[i]=col;
+  }
   FastLED.delay(mysets.speed);
 }
 
-/**** Below are effects copied from
- **** http://fastled.io/docs/examples.html
- **** some have been slightly modified to work in this framework
-****/
-
-void rainbow() {
-  // FastLED's built-in rainbow generator
-  fill_rainbow( leds, NUM_LEDS, gHue, 7);
+void ConstantFade(CRGB col) {
+  Constant(col);
+  int fade_max=(mysets.brightness<FADE_MIN?FADE_MIN:mysets.brightness);
+  int t=(millis()*mysets.speed/2000)%(fade_max*2);
+  if (t>fade_max) {t=fade_max*2-t;}
+  if (t<FADE_MIN) {t=FADE_MIN;}
+  FastLED.setBrightness(t);
 }
- 
-void rainbowWithGlitter() {
-  // built-in FastLED rainbow, plus some random sparkly glitter
-  rainbow();
-  addGlitter(80);
+// Calculate a
+int speedstep(int border) {
+   int step=(256-mysets.speed)/16;
+   if (step>=border) {
+     return 1;
+   }
+   return border-step;
 }
- 
-void addGlitter( fract8 chanceOfGlitter) {
-  if( random8() < chanceOfGlitter) {
-    leds[ random16(NUM_LEDS) ] += CRGB::White;
-  }
-}
-
-void confetti() {
-  // random colored speckles that blink in and fade smoothly
-  fadeToBlackBy( leds, NUM_LEDS, mysets.fade);
-  int pos = random16(NUM_LEDS);
-  leds[pos] += CHSV( gHue + random8(64), 200, 255);
-}
-
-void bpm() {
-  // colored stripes pulsing at a defined Beats-Per-Minute (BPM)
-  uint8_t BeatsPerMinute = mysets.speed;
-  CRGBPalette16 palette = PartyColors_p;
-  uint8_t beat = beatsin8( BeatsPerMinute, 64, 255);
-  for( int i = 0; i < NUM_LEDS; i++) { //9948
-    leds[i] = ColorFromPalette(palette, gHue+(i*2), beat-gHue+(i*10));
-  }
-}
-
 // Inspired by FastLED Sinelon example, but rewritten to fill gaps for smoother output
 
 void sinelon(CRGB col) {
     fadeToBlackBy( leds, NUM_LEDS, mysets.fade);
-    sinus(mysets.speed/10,0,col);
+    //Divide by 50 to reduce to reasonable range
+    sinus(mysets.speed/10+1,0,col);
+    FastLED.delay(20);
+    // Settings Beat and Speed independently does not make much sense
+    // Speed could be fixed to 20 and beat from 1-255 - so speed setting could still be used
 }
 
  // remember positions for sinus-wave
@@ -558,22 +574,7 @@ void sinelon(CRGB col) {
     }
  }
 
-// Based on https://github.com/atuline/FastLED-Demos/blob/master/juggle_pal/juggle_pal.ino
-// Originally by: Mark Kriegsman
-// Modified By: Andrew Tuline
-// Modified to use an enhanced sinus function that fills the gaps between the dots of the wave resulting in a nicer flow
-
-void juggle() {
-  // eight colored dots, weaving in and out of sync with each other
-  fadeToBlackBy( leds, NUM_LEDS, mysets.fade);
-  uint8_t dothue = 0;
-  for( int i = 0; i < 8; i++) {
-    sinus(i+7,i,CHSV( dothue, 255, 192));
-    dothue += 32;
-  }
-}
-
-// Support function for Sinus-Wave that fills the missed out LEDs - used by juggle + sinelon
+ // Support function for Sinus-Wave that fills the missed out LEDs - used by juggle + sinelon
 void sinus(int beat, int index, CRGB col) {
   ppos[index]=cpos[index];
   cpos[index] = beatsin16(beat, 0, NUM_LEDS );
@@ -587,6 +588,72 @@ void sinus(int beat, int index, CRGB col) {
       leds[i] |= col;
     }
   }
+}
+
+/**** Below are effects copied from
+ **** http://fastled.io/docs/examples.html
+ **** some have been slightly modified to work in this framework
+****/
+
+void rainbow() {
+  // FastLED's built-in rainbow generator
+  fill_rainbow( leds, NUM_LEDS, gHue, 7);
+  //FastLED.show();  
+  FastLED.delay((256-mysets.speed)/3+1);    
+}
+ 
+void rainbowWithGlitter() {
+  // built-in FastLED rainbow, plus some random sparkly glitter
+  rainbow();
+  for (int i=0;i<NUM_LEDS/64;i++) { // Longer strip, more glitter
+    addGlitter(80);
+  }
+  //FastLED.show();  
+  FastLED.show(); // No delay here as rainbow() already does it    
+}
+ 
+void addGlitter( fract8 chanceOfGlitter) {
+  if( random8() < chanceOfGlitter) {
+    leds[ random16(NUM_LEDS) ] += CRGB::White;
+  }
+}
+
+void confetti() {
+  // random colored speckles that blink in and fade smoothly
+  fadeToBlackBy( leds, NUM_LEDS, mysets.fade);
+  int pos = random16(NUM_LEDS);
+  leds[pos] += CHSV( gHue + random8(64), 200, 255);
+  //FastLED.show();  
+  FastLED.delay((256-mysets.speed)/3);    
+}
+
+void bpm() {
+  // colored stripes pulsing at a defined Beats-Per-Minute (BPM)
+  uint8_t BeatsPerMinute = mysets.speed/3;
+  CRGBPalette16 palette = PartyColors_p;
+  uint8_t beat = beatsin8( BeatsPerMinute, 64, 255);
+  for( int i = 0; i < NUM_LEDS; i++) { //9948
+    leds[i] = ColorFromPalette(palette, gHue+(i*2), beat-gHue+(i*10));
+  }
+  //FastLED.show();  
+  FastLED.delay(mysets.speed/3);    
+}
+
+// Based on https://github.com/atuline/FastLED-Demos/blob/master/juggle_pal/juggle_pal.ino
+// Originally by: Mark Kriegsman
+// Modified By: Andrew Tuline
+// Modified to use an enhanced sinus function that fills the gaps between the dots of the wave resulting in a nicer flow
+
+void juggle() {
+  // eight colored dots, weaving in and out of sync with each other
+  fadeToBlackBy( leds, NUM_LEDS, mysets.fade);
+  uint8_t dothue = 0;
+  for( int i = 0; i < 8; i++) {
+    sinus(i+7,i,CHSV( dothue, 255, 192));
+    dothue += 32;
+  }
+  //FastLED.show();  
+  FastLED.delay(mysets.speed/5);    
 }
 
 // From FastLED examples
@@ -630,7 +697,7 @@ void pride() {
     
     nblend( leds[pixelnumber], newcolor, 64);
   }
-  FastLED.show();
+  FastLED.delay(mysets.speed/5);    
 }
 
 // Pacifica effect, simulating waves, all in blue 
@@ -681,7 +748,7 @@ void pacifica_loop()
  
   // Deepen the blues and greens a bit
   pacifica_deepen_colors();
-  FastLED.show();
+  FastLED.delay((256-mysets.speed)/5);
 }
  
 // Add one layer of waves into the led array
@@ -766,5 +833,6 @@ void Fire(int start,int size_s)
       leds[start+size-j] = HeatColor( heat[j+start]);
     }
   }
+  FastLED.delay((256-mysets.speed)/20+1);
 }
  
