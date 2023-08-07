@@ -13,6 +13,11 @@ const char* my_ssid = "";
 const char* my_pass = ""; 
 const char * esp_name = "ESP LED";
 int rssi = -1;
+int apmode = 0;
+int ssid_len = 0;
+int ssid_ind =-1;
+int pw_len = 0;
+int pw_ind = -1;
 
 // LED
 #define FASTLED_ESP8266_RAW_PIN_ORDER
@@ -33,7 +38,7 @@ int timer=0;
 // Setting that should survive power cycle
 #include <EEPROM.h>
 // Change this if the structure of "settings" is changing to avoid incorrect assignments
-#define MAGIC_WORD 12567
+#define MAGIC_WORD 12569
 struct settings {
   uint16_t magic=MAGIC_WORD;
   uint8_t mode = 0;  // Effect mode
@@ -97,35 +102,20 @@ void setup() {
   }
   WiFi.begin(mysets.ssid,mysets.pw);
   if (WiFi.waitForConnectResult(10000) != WL_CONNECTED) {
-     while (WiFi.waitForConnectResult(10000) != WL_CONNECTED) {
       Serial.println("Error connecting Wifi!");
-      Serial.setTimeout(60*1000); // 1 Minute
-      int ssid_len = 0;
-      while (ssid_len == 0) {
-        Serial.println();
-        Serial.print("Enter SSID:");
-        ssid_len = Serial.readBytesUntil(10, mysets.ssid, 64);
-        mysets.ssid[ssid_len]=0;
-      }
-      Serial.println();
-      int pw_len = 0;
-      while (pw_len == 0) {
-        Serial.println();
-        Serial.print("Enter Password:");
-        pw_len = Serial.readBytesUntil(10, mysets.pw, 64);
-        mysets.pw[pw_len]=0;
-      }
-      Serial.println();
-      Serial.println("Connecting to "+String(mysets.ssid)+"/"+String(mysets.pw));
-      Serial.flush();
-      WiFi.begin(mysets.ssid,mysets.pw);
-    }
-    Serial.println("Successfully registered new WiFi connection");
-    EEPROM.put(0,mysets);
-    EEPROM.commit();
+      IPAddress local_IP(192,168,33,1);
+      IPAddress subnet(255,255,255,0);
+      WiFi.mode(WIFI_AP);
+      WiFi.softAP(esp_name);
+      delay(100);
+      WiFi.softAPConfig(local_IP, local_IP, subnet);
+      Serial.print("Soft-AP IP address = ");
+      Serial.println(WiFi.softAPIP());
+      apmode=1;
   } else {
       Serial.println("Successful WiFi connect with stored values");
       Serial.flush();    
+      apmode=0;
   }
   
   WiFi.setAutoReconnect(true);
@@ -146,78 +136,95 @@ void setup() {
   Serial.print(" with ");
   Serial.println(WiFi.RSSI());
 
+  if (apmode) {
   server.on("/", []() {
-    server.send(200, "text/html", html_page);
+    server.send(200, "text/html", login_page);
   });
-  server.on("/command", []() { //Define the handling function for the javascript path
-    int newmode=server.arg("id").toInt();
-    if (newmode==100) {
-      EEPROM.put(0,mysets);
-      EEPROM.commit();
-    } else if (newmode==101) {
-      timer=millis()/1000+60*60; // fixed timer 1h for now
-    } else {
-      mysets.mode=newmode;
-      //Reset brightness as some effects change it
-      setBrightness(mysets.brightness);
-      // Set reasonable defaults
-      switch (mysets.mode) {
-        case 0:  timer=0; leds.fadeToBlackBy(5); break; //OFF
-        case 1:  mysets.speed=255; mysets.fade=50; 
-                 mysets.rgbmode=1; mysets.col_r=255; mysets.col_g=0; mysets.col_b=0;
-                 mysets.endless=0; break; // KITT
-        case 2:  mysets.speed=180; mysets.fade=50; mysets.rgbmode=0; break; // Multi
-        case 3:  mysets.speed=255; mysets.fade=50; mysets.rgbmode=0; mysets.endless=1; break; // Mirror
-        case 4:  break; // Pride has no arguments to modify
-        case 5:  mysets.speed=50; break; // Constant
-        case 6:  mysets.speed=50; break; // ConstantFade
-        case 7:  sinus_init(); mysets.speed=100; mysets.fade=25; break; // Sinelon
-        case 8:  mysets.speed=140; mysets.fade=80; break; // Fire
-        case 10: mysets.speed=50; break; // Pacifica
-        case 11: mysets.speed=50; break; // Rainbow
-        case 12: mysets.speed=50; break; // Rainbow with Glitter
-        case 13: mysets.fade=20; mysets.speed=120; break; // Confetti
-        case 15: mysets.speed=90; mysets.fade=30; break; // BPM
-        case 16: sinus_init(); mysets.speed=50; mysets.fade=30; break; // Juggle
-      }
-    }
-    server.send(200,"text/html","ok");
+  server.on("/login", []() {
+    Serial.print("SSID:");
+    Serial.println(server.arg("ssid"));
+    ssid_len=urlDecode(server.arg("ssid").c_str(),mysets.ssid,64);
+    Serial.println(mysets.ssid);
+    Serial.print("Password:");
+    Serial.println(server.arg("pw"));
+    urlDecode(server.arg("pw").c_str(),mysets.pw,64);
+    pw_len=Serial.println(mysets.pw);
+    Serial.println(mysets.pw);
   });
-  server.on("/settings", []() {
-  String reply="{\"speed\":\""+String(mysets.speed)+"\",\"fade\":\""+String(mysets.fade)+"\",";
-  reply+="\"brightness\":\""+String(mysets.brightness)+"\",";
-  reply+="\"hue\":\""+String(mysets.hue)+"\",";
-  reply+="\"effect\":\""+String(mysets.mode)+"\",";
-  if (timer>0) {
-    reply+="\"timer\":\"(Timer: "+String((timer-millis()/1000)/60)+" min"+")\",";
   } else {
-    reply+="\"timer\":\" \",";
+    server.on("/", []() {
+      server.send(200, "text/html", html_page);
+    });
+    server.on("/command", []() { //Define the handling function for the javascript path
+      int newmode=server.arg("id").toInt();
+      if (newmode==100) {
+        EEPROM.put(0,mysets);
+        EEPROM.commit();
+      } else if (newmode==101) {
+        timer=millis()/1000+60*60; // fixed timer 1h for now
+      } else {
+        mysets.mode=newmode;
+        //Reset brightness as some effects change it
+        setBrightness(mysets.brightness);
+        // Set reasonable defaults
+        switch (mysets.mode) {
+          case 0:  timer=0; leds.fadeToBlackBy(5); break; //OFF
+          case 1:  mysets.speed=255; mysets.fade=50; 
+                  mysets.rgbmode=1; mysets.col_r=255; mysets.col_g=0; mysets.col_b=0;
+                  mysets.endless=0; break; // KITT
+          case 2:  mysets.speed=180; mysets.fade=50; mysets.rgbmode=0; break; // Multi
+          case 3:  mysets.speed=255; mysets.fade=50; mysets.rgbmode=0; mysets.endless=1; break; // Mirror
+          case 4:  mysets.speed=255; mysets.hue=32; break; // Pride 
+          case 5:  mysets.speed=50; break; // Constant
+          case 6:  mysets.speed=50; break; // ConstantFade
+          case 7:  sinus_init(); mysets.speed=100; mysets.fade=25; break; // Sinelon
+          case 8:  mysets.speed=140; mysets.fade=80; break; // Fire
+          case 10: mysets.speed=50; mysets.hue=32; break; // Pacifica
+          case 11: mysets.speed=50; mysets.hue=32; break; // Rainbow
+          case 12: mysets.speed=50; mysets.hue=32; break; // Rainbow with Glitter
+          case 13: mysets.fade=20; mysets.speed=120; break; // Confetti
+          case 15: mysets.speed=90; mysets.fade=30; break; // BPM
+          case 16: sinus_init(); mysets.speed=50; mysets.fade=30; break; // Juggle
+        }
+      }
+      server.send(200,"text/html","ok");
+    });
+    server.on("/settings", []() {
+    String reply="{\"speed\":\""+String(mysets.speed)+"\",\"fade\":\""+String(mysets.fade)+"\",";
+    reply+="\"brightness\":\""+String(mysets.brightness)+"\",";
+    reply+="\"hue\":\""+String(mysets.hue)+"\",";
+    reply+="\"effect\":\""+String(mysets.mode)+"\",";
+    if (timer>0) {
+      reply+="\"timer\":\"(Timer: "+String((timer-millis()/1000)/60)+" min"+")\",";
+    } else {
+      reply+="\"timer\":\" \",";
+    }
+    #ifdef ENABLE_DHT11
+      reply+= "\"temperature\":\""+String(temperature)+"\",\"humidity\":\""+String(humidity)+"\",";
+    #endif
+    reply+="\"col_r\":\""+String(mysets.col_r)+"\",\"col_g\":\""+String(mysets.col_g)+"\",\"col_b\":\""+String(mysets.col_b)+"\",";
+    reply+="\"rgb\":\""+String(mysets.rgbmode)+"\",\"endless\":\""+String(mysets.endless)+"\",\"reverse\":\""+String(mysets.reverse)+"\"}";
+    Serial.println(reply);
+    server.send(200,"text/html",reply);
+    });
+    server.on("/slider", []() { //Define the handling function for the javascript path
+      mysets.speed=set_arg(mysets.speed,server.arg("speed"));
+      mysets.fade=set_arg(mysets.fade,server.arg("fade"));
+      mysets.hue=set_arg(mysets.hue,server.arg("hue"));
+      mysets.col_r=set_arg(mysets.col_r,server.arg("r"));
+      mysets.col_g=set_arg(mysets.col_g,server.arg("g"));
+      mysets.col_b=set_arg(mysets.col_b,server.arg("b"));
+      mysets.rgbmode=set_arg(mysets.rgbmode,server.arg("rgb"));
+      mysets.endless=set_arg(mysets.endless,server.arg("endless"));
+      mysets.reverse=set_arg(mysets.reverse,server.arg("reverse"));
+      String my_brightness=server.arg("brightness");
+      if (my_brightness.length()>0) {
+        mysets.brightness=my_brightness.toInt();
+        setBrightness(mysets.brightness);
+      }
+      server.send(200,"text/html","ok");
+    });
   }
-  #ifdef ENABLE_DHT11
-    reply+= "\"temperature\":\""+String(temperature)+"\",\"humidity\":\""+String(humidity)+"\",";
-  #endif
-  reply+="\"col_r\":\""+String(mysets.col_r)+"\",\"col_g\":\""+String(mysets.col_g)+"\",\"col_b\":\""+String(mysets.col_b)+"\",";
-  reply+="\"rgb\":\""+String(mysets.rgbmode)+"\",\"endless\":\""+String(mysets.endless)+"\",\"reverse\":\""+String(mysets.reverse)+"\"}";
-  Serial.println(reply);
-  server.send(200,"text/html",reply);
-  });
-  server.on("/slider", []() { //Define the handling function for the javascript path
-    mysets.speed=set_arg(mysets.speed,server.arg("speed"));
-    mysets.fade=set_arg(mysets.fade,server.arg("fade"));
-    mysets.hue=set_arg(mysets.hue,server.arg("hue"));
-    mysets.col_r=set_arg(mysets.col_r,server.arg("r"));
-    mysets.col_g=set_arg(mysets.col_g,server.arg("g"));
-    mysets.col_b=set_arg(mysets.col_b,server.arg("b"));
-    mysets.rgbmode=set_arg(mysets.rgbmode,server.arg("rgb"));
-    mysets.endless=set_arg(mysets.endless,server.arg("endless"));
-    mysets.reverse=set_arg(mysets.reverse,server.arg("reverse"));
-    String my_brightness=server.arg("brightness");
-    if (my_brightness.length()>0) {
-      mysets.brightness=my_brightness.toInt();
-      setBrightness(mysets.brightness);
-     }
-    server.send(200,"text/html","ok");
-  });
   server.onNotFound(handleNotFound);
   server.begin();
   Serial.println("HTTP server started");
@@ -243,6 +250,28 @@ int set_arg(int val,String arg) {
     return arg.toInt();
   }
   return val;
+}
+
+//Revert javascript function encodeURIComponent(pw) (%xx -> character)
+int urlDecode(const char *src,char *dest,int len) {
+  Serial.println(src);
+  char ch[3];
+  int d=0;
+  int i, ii;
+  for (i=0; i<strlen(src); i++) {
+      if (src[i]=='%') {
+          ch[0]=src[i+1];
+          ch[1]=src[i+2];
+          ch[2]=0;
+          sscanf(ch, "%x", &ii);
+          dest[d++]=static_cast<char>(ii);
+          i=i+2;
+      } else {
+          dest[d++]=src[i];
+      }
+  }
+  dest[d]=0;
+  return d;
 }
 
 /* ------------------------------------------------------------ */
@@ -272,13 +301,69 @@ void handleNotFound() {
   server.send(404, "text/plain", message);
 }
 
+
+
 // Executed repeatedly after setup has finished
 void loop() {
+  if (apmode) {
+    getCredentials();
+  }
   server.handleClient();
 #ifdef ENABLE_DHT11
   handle_dht11();
 #endif
   handle_led();
+}
+
+// Scan serial for SSID/PW is stateful mode to allow AP Input in parallel
+void getCredentials() {
+  if (ssid_len == 0) {
+    if (ssid_ind<0) {
+      Serial.println();
+      Serial.print("Enter SSID:");
+      ssid_ind=0;
+    } else {
+      int len = Serial.readBytes(&mysets.ssid[ssid_ind], 64-ssid_ind);
+      ssid_ind+=len;
+      if (mysets.ssid[ssid_ind-1]==10) {
+        mysets.ssid[ssid_ind-1]=0;
+        ssid_len=ssid_ind-1;
+        Serial.println(mysets.ssid);
+        Serial.flush();
+      }
+    }
+  }
+  if (pw_len == 0 && ssid_len>0) {
+    if (pw_ind<0) {
+      Serial.println();
+      Serial.print("Enter Password:");
+      pw_ind=0;
+    } else {
+      int len = Serial.readBytes(&mysets.pw[pw_ind], 64-pw_ind);
+      pw_ind+=len;
+      if (mysets.pw[pw_ind-1]==10) {
+        mysets.pw[pw_ind-1]=0;
+        pw_len=pw_ind-1;
+        Serial.println(mysets.pw);
+        Serial.flush();
+      }
+    }
+  }
+  if (pw_len>0 && ssid_len>0) {
+    WiFi.disconnect();
+    WiFi.mode(WIFI_STA);
+    Serial.println("Connecting to "+String(mysets.ssid)+"/"+String(mysets.pw));
+    Serial.flush();
+    WiFi.begin(mysets.ssid,mysets.pw);
+    if (WiFi.waitForConnectResult(10000) != WL_CONNECTED) {
+      Serial.println("Error connecting Wifi!");
+    } else {
+    Serial.println("Successfully registered new WiFi connection");
+    EEPROM.put(0,mysets);
+    EEPROM.commit();      
+    }
+    ESP.restart();
+  }
 }
 
 int sec=0;
