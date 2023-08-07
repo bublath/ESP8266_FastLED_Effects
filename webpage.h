@@ -133,3 +133,30 @@ const char * html_page = R""""(
 </body>
 </html>
 )"""";
+
+const char * login_page = R""""(
+<html>
+<head>
+<style>
+.button:active {
+  transform: translateY(3px);
+}
+</style>
+</head>
+<body>
+<p><h1>ESP LED Login Page</h1></p>
+<p>SSID:<input type='text' size=25 id='ssid'></p>
+<p>Password:<input type='text' size=25 id='pw'></p>
+<p><input type='button' onclick='submit()' value='Submit'></p>
+<script>
+function submit() {
+	const req = new XMLHttpRequest();
+	var ssid=document.getElementById('ssid').value;
+	var pw=document.getElementById('pw').value;
+	var uri="ssid="+encodeURIComponent(ssid)+"&pw="+encodeURIComponent(pw);
+    req.open('POST',"/login?"+uri);
+    req.send();
+    return false;
+}
+</script>
+)"""";
