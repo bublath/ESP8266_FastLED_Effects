@@ -26,7 +26,7 @@ const char * html_page = R""""(
 }
 </style>
 </head>
-<body onload='updateValues()'>
+<body onload='init()'>
 <p><h1>ESP LED Driver</h1></p>
 <p><h2 id='effect'></h2></p>
 <table>
@@ -82,8 +82,12 @@ const char * html_page = R""""(
 	<th><input type='button' onclick='buttonFunction(101,this.value)' class='button button2' value='Timer 1h'><br></th>
 </tr>
 <script>
-  const effects=['OFF','K.I.T.T.','Multiband','Mirror','Pride','Constant','Constant Fade','Sinelon','Fire','',
-                'Pacifica','Rainbow','Rainbow mit Glitter','Confetti','','BPM','Juggle'];
+  const effects=['OFF','K.I.T.T.','Multiband','Mirror','Pride','Constant','Constant Fade','Sinelon','Fire','Multi(fast)',
+                'Pacifica','Rainbow','Rainbow mit Glitter','Confetti','Confetti (fast)','BPM','Juggle'];
+  function init() {
+	  updateValues();
+	  var id=setInterval(updateValues,5000);
+  }
   function updateValues() {
     const req = new XMLHttpRequest();
     req.open('GET','/settings');

@@ -69,6 +69,8 @@ float temperature = -1;
 float humidity = -1;
 #endif
 
+#define BUTTON_PIN 2
+
 // To test the page it can be renamed to .html
 // uses the C++ raw string literals 
 #include "webpage.h"
@@ -125,6 +127,8 @@ void setup() {
   dht.setup(dhtPin, DHTesp::DHT11);
 #endif
 
+  pinMode(BUTTON_PIN,INPUT);
+
   FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);
   leds.fadeToBlackBy(5);
   setBrightness(mysets.brightness);
@@ -163,29 +167,7 @@ void setup() {
       } else if (newmode==101) {
         timer=millis()/1000+60*60; // fixed timer 1h for now
       } else {
-        mysets.mode=newmode;
-        //Reset brightness as some effects change it
-        setBrightness(mysets.brightness);
-        // Set reasonable defaults
-        switch (mysets.mode) {
-          case 0:  timer=0; leds.fadeToBlackBy(5); break; //OFF
-          case 1:  mysets.speed=255; mysets.fade=50; 
-                  mysets.rgbmode=1; mysets.col_r=255; mysets.col_g=0; mysets.col_b=0;
-                  mysets.endless=0; break; // KITT
-          case 2:  mysets.speed=180; mysets.fade=50; mysets.rgbmode=0; break; // Multi
-          case 3:  mysets.speed=255; mysets.fade=50; mysets.rgbmode=0; mysets.endless=1; break; // Mirror
-          case 4:  mysets.speed=255; mysets.hue=32; break; // Pride 
-          case 5:  mysets.speed=50; break; // Constant
-          case 6:  mysets.speed=50; break; // ConstantFade
-          case 7:  sinus_init(); mysets.speed=100; mysets.fade=25; break; // Sinelon
-          case 8:  mysets.speed=140; mysets.fade=80; break; // Fire
-          case 10: mysets.speed=50; mysets.hue=32; break; // Pacifica
-          case 11: mysets.speed=50; mysets.hue=32; break; // Rainbow
-          case 12: mysets.speed=50; mysets.hue=32; break; // Rainbow with Glitter
-          case 13: mysets.fade=20; mysets.speed=120; break; // Confetti
-          case 15: mysets.speed=90; mysets.fade=30; break; // BPM
-          case 16: sinus_init(); mysets.speed=50; mysets.fade=30; break; // Juggle
-        }
+        initMode(newmode);
       }
       server.send(200,"text/html","ok");
     });
@@ -224,6 +206,12 @@ void setup() {
       }
       server.send(200,"text/html","ok");
     });
+    server.on("/reset", []() {
+      // next reboot will require all settings including WiFi to be set again
+      mysets.magic=0;
+      EEPROM.put(0,mysets);
+      EEPROM.commit();      
+    }); 
   }
   server.onNotFound(handleNotFound);
   server.begin();
@@ -231,6 +219,35 @@ void setup() {
   
   Serial.println("Executing main");
   Serial.flush();
+}
+
+void initMode(int newmode) {
+  mysets.mode=newmode;
+  //Reset brightness as some effects change it
+  setBrightness(mysets.brightness);
+  // Set reasonable defaults
+  switch (mysets.mode) {
+    case 0:  timer=0; leds.fadeToBlackBy(5); break; //OFF
+    case 1:  mysets.speed=255; mysets.fade=50; 
+            mysets.rgbmode=1; mysets.col_r=255; mysets.col_g=0; mysets.col_b=0;
+            mysets.endless=0; break; // KITT
+    case 2:  mysets.speed=180; mysets.fade=50; mysets.rgbmode=0; break; // Multi
+    case 3:  mysets.speed=255; mysets.fade=50; mysets.rgbmode=0; mysets.endless=1; break; // Mirror
+    case 4:  mysets.speed=255; mysets.hue=32; break; // Pride 
+    case 5:  mysets.speed=50; break; // Constant
+    case 6:  mysets.speed=50; break; // ConstantFade
+    case 7:  sinus_init(); mysets.speed=100; mysets.fade=25; break; // Sinelon
+    case 8:  mysets.speed=140; mysets.fade=80; break; // Fire
+    case 9:  mysets.speed=230; mysets.fade=100; mysets.rgbmode=0; break; // Multi
+    case 10: mysets.speed=50; mysets.hue=32; break; // Pacifica
+    case 11: mysets.speed=50; mysets.hue=32; break; // Rainbow
+    case 12: mysets.speed=50; mysets.hue=32; break; // Rainbow with Glitter
+    case 13: mysets.fade=20; mysets.speed=120; break; // Confetti
+    case 14: mysets.fade=8; mysets.speed=255; break; // Confetti fast
+    case 15: mysets.speed=90; mysets.fade=30; break; // BPM
+    case 16: sinus_init(); mysets.speed=50; mysets.fade=30; break; // Juggle
+  }
+
 }
 
 // Sets the brightness exponentially which rather looks like what you expect
@@ -301,7 +318,7 @@ void handleNotFound() {
   server.send(404, "text/plain", message);
 }
 
-
+int button=1;
 
 // Executed repeatedly after setup has finished
 void loop() {
@@ -313,6 +330,23 @@ void loop() {
   handle_dht11();
 #endif
   handle_led();
+
+  int bt=digitalRead(BUTTON_PIN);
+  if (button!=bt) {
+    Serial.print("Button:");
+    Serial.println(bt);
+    button=bt;
+    if (button==1) {
+      mysets.mode++;
+      if (mysets.mode>16) {
+        mysets.mode=0;
+      }
+      initMode(mysets.mode);
+      Serial.print("New mode:");
+      Serial.println(mysets.mode);
+    }
+  }
+
 }
 
 // Scan serial for SSID/PW is stateful mode to allow AP Input in parallel
@@ -419,10 +453,12 @@ void handle_led() {
     case 6: ConstantFade(col); break;
     case 7: sinelon(col); break;
     case 8: Fire(0,-50);Fire(50,50);Fire(100,-50);Fire(150,50);Fire(200,-50); Fire(250,50); break;
+    case 9: Multi(col,mysets.reverse==0?1:-1); break; // with faster settings
     case 10: pacifica_loop(); break;
     case 11: rainbow(); break;
     case 12: rainbowWithGlitter(); break;
     case 13: confetti(); break;
+    case 14: confetti(); break; // with faster settings
     case 15: bpm(); break;
     case 16: juggle(); break;
 
