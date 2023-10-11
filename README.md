@@ -9,9 +9,9 @@ FastLED Effect Webserver on ESP8266 with multiple effects and configuration opti
 - Includes a DHT11 temperature/humidity sensor, but that can be excluded with #undef ENABLE_DHT11
 
 Installation:
-Install the Arduino IDE and add the ESP8266 Board Manage (File->Preferences, under "Additional boards manager URLs" add https://arduino.esp8266.com/stable/package_esp8266com_index.json
-To use the DHT11 Sensor part, add the library "DHT sensor library for ESPx by beegee_tokyo" (tested with 1.19)
-For the LED add "FastLED by Danial Garcia" (tested with 3.6.0)
+- Install the Arduino IDE and add the ESP8266 Board Manage (File->Preferences, under "Additional boards manager URLs" add https://arduino.esp8266.com/stable/package_esp8266com_index.json
+- To use the DHT11 Sensor part, add the library "DHT sensor library for ESPx by beegee_tokyo" (tested with 1.19)
+- For the LED add "FastLED by Danial Garcia" (tested with 3.6.0)
 
 Have fun
 
