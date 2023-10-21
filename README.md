@@ -17,7 +17,7 @@ Have fun
 
 Current web frontend:
 
-![image](https://github.com/bublath/ESP8266_FastLED_Effects/assets/74186638/fa47a364-715c-48be-a678-ba3bef8a3cf5)
+![image](https://github.com/bublath/ESP8266_FastLED_Effects/assets/74186638/e157fc14-d29f-44ac-ab5a-73ba68a9183a)
 
 How to connect on a breadboard:
 
