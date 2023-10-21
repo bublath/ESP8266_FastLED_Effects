@@ -27,7 +27,7 @@ int pw_ind = -1;
 #pragma GCC diagnostic ignored "-Wregister"
 #include <FastLED.h>
 #define DATA_PIN 16 //D6
-#define NUM_LEDS 300
+#define NUM_LEDS 300 //264 for SZ
 CRGBArray<NUM_LEDS> leds;
 uint8_t gHue = 0; // rotating "base color" used by many of the patterns
 //Avoid getting to dark (or black) as this is perceived as a flicker
@@ -48,7 +48,7 @@ struct settings {
   uint8_t col_r = 255;
   uint8_t col_g = 0;
   uint8_t col_b = 0;
-  uint8_t rgbmode = 0;
+  uint8_t rgbmode = 1;
   uint8_t endless = 1;
   uint8_t reverse = 0;
   uint8_t brightness = 255;
@@ -184,6 +184,9 @@ void setup() {
     #ifdef ENABLE_DHT11
       reply+= "\"temperature\":\""+String(temperature)+"\",\"humidity\":\""+String(humidity)+"\",";
     #endif
+    char color[8];
+    sprintf(color,"#%02x%02x%02x",mysets.col_r,mysets.col_g,mysets.col_b);
+    reply+= "\"color\":\""+String(color)+"\",";
     reply+="\"col_r\":\""+String(mysets.col_r)+"\",\"col_g\":\""+String(mysets.col_g)+"\",\"col_b\":\""+String(mysets.col_b)+"\",";
     reply+="\"rgb\":\""+String(mysets.rgbmode)+"\",\"endless\":\""+String(mysets.endless)+"\",\"reverse\":\""+String(mysets.reverse)+"\"}";
     Serial.println(reply);
@@ -203,6 +206,11 @@ void setup() {
       if (my_brightness.length()>0) {
         mysets.brightness=my_brightness.toInt();
         setBrightness(mysets.brightness);
+      }
+      Serial.println("Color:"+server.arg("color"));
+      if (server.arg("color").length()>0) {
+        Serial.println("Color:"+server.arg("color"));
+        sscanf(server.arg("color").c_str(),"#%02hhX%02hhX%02hhX",&mysets.col_r,&mysets.col_g,&mysets.col_b);
       }
       server.send(200,"text/html","ok");
     });
@@ -229,16 +237,16 @@ void initMode(int newmode) {
   switch (mysets.mode) {
     case 0:  timer=0; leds.fadeToBlackBy(5); break; //OFF
     case 1:  mysets.speed=255; mysets.fade=50; 
-            mysets.rgbmode=1; mysets.col_r=255; mysets.col_g=0; mysets.col_b=0;
+            mysets.rgbmode=0; mysets.col_r=255; mysets.col_g=0; mysets.col_b=0;
             mysets.endless=0; break; // KITT
-    case 2:  mysets.speed=180; mysets.fade=50; mysets.rgbmode=0; break; // Multi
-    case 3:  mysets.speed=255; mysets.fade=50; mysets.rgbmode=0; mysets.endless=1; break; // Mirror
+    case 2:  mysets.speed=180; mysets.fade=50; mysets.rgbmode=1; break; // Multi
+    case 3:  mysets.speed=255; mysets.fade=50; mysets.rgbmode=1; mysets.endless=1; break; // Mirror
     case 4:  mysets.speed=255; mysets.hue=32; break; // Pride 
     case 5:  mysets.speed=50; break; // Constant
     case 6:  mysets.speed=50; break; // ConstantFade
     case 7:  sinus_init(); mysets.speed=100; mysets.fade=25; break; // Sinelon
     case 8:  mysets.speed=140; mysets.fade=80; break; // Fire
-    case 9:  mysets.speed=230; mysets.fade=100; mysets.rgbmode=0; break; // Multi
+    case 9:  mysets.speed=230; mysets.fade=100; mysets.rgbmode=1; break; // Multi
     case 10: mysets.speed=50; mysets.hue=32; break; // Pacifica
     case 11: mysets.speed=50; mysets.hue=32; break; // Rainbow
     case 12: mysets.speed=50; mysets.hue=32; break; // Rainbow with Glitter
@@ -402,6 +410,7 @@ void getCredentials() {
 
 int sec=0;
 int mil=0;
+int led_index=0;
 
 #ifdef ENABLE_DHT11
 // Update Temperature and Humidity
@@ -429,10 +438,10 @@ void handle_dht11() {
 void handle_led() {
 
   CRGB col;
-  if (mysets.rgbmode==1) {
+  if (mysets.rgbmode==0) {
     col=CRGB(mysets.col_r,mysets.col_g,mysets.col_b);
   } else {
-    col=CHSV( gHue, 255, 192);
+    col=CHSV( gHue, 255, 255);
   }
   if (timer>0 && millis()/1000>timer) {
     mysets.mode=0; timer=0;
@@ -452,7 +461,7 @@ void handle_led() {
     case 5: Constant(col); break;
     case 6: ConstantFade(col); break;
     case 7: sinelon(col); break;
-    case 8: Fire(0,-50);Fire(50,50);Fire(100,-50);Fire(150,50);Fire(200,-50); Fire(250,50); break;
+    case 8: Fire(0,-50);Fire(50,50);Fire(100,-50);Fire(150,50);Fire(200,-50); /*Fire(250,50);*/ break;
     case 9: Multi(col,mysets.reverse==0?1:-1); break; // with faster settings
     case 10: pacifica_loop(); break;
     case 11: rainbow(); break;
@@ -467,6 +476,8 @@ void handle_led() {
   if (mil<millis()) {
     mil=millis()+mysets.hue; 
     gHue++; // slowly cycle the "base color" through the rainbow
+    led_index++;
+    if (led_index>NUM_LEDS) { led_index=0;}
   }
 
 }
