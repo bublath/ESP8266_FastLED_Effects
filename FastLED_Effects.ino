@@ -8,7 +8,9 @@
 // WiFi connectivity and webserver
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <DNSServer.h>
 ESP8266WebServer server(80);
+DNSServer dnsserver;
 const char* my_ssid = "";
 const char* my_pass = ""; 
 const char * esp_name = "ESP LED";
@@ -38,7 +40,7 @@ int timer=0;
 // Setting that should survive power cycle
 #include <EEPROM.h>
 // Change this if the structure of "settings" is changing to avoid incorrect assignments
-#define MAGIC_WORD 12569
+#define MAGIC_WORD 11269
 struct settings {
   uint16_t magic=MAGIC_WORD;
   uint8_t mode = 0;  // Effect mode
@@ -97,7 +99,7 @@ void setup() {
   Serial.println(mysets.ssid);
   Serial.print("PASS: ");
   Serial.println(mysets.pw);
-
+ 
   // While developping prioritize hardcoded setting
   if (strlen(my_ssid)>0 and strlen(my_pass)>0) {
     WiFi.begin(my_ssid,my_pass);
@@ -105,7 +107,8 @@ void setup() {
   WiFi.begin(mysets.ssid,mysets.pw);
   if (WiFi.waitForConnectResult(10000) != WL_CONNECTED) {
       Serial.println("Error connecting Wifi!");
-      IPAddress local_IP(192,168,33,1);
+ //     IPAddress local_IP(192,168,33,1);
+      IPAddress local_IP(4,3,2,1); //Samsung devices don't accept 192.168.x.x adresses
       IPAddress subnet(255,255,255,0);
       WiFi.mode(WIFI_AP);
       WiFi.softAP(esp_name);
@@ -113,6 +116,10 @@ void setup() {
       WiFi.softAPConfig(local_IP, local_IP, subnet);
       Serial.print("Soft-AP IP address = ");
       Serial.println(WiFi.softAPIP());
+
+      dnsserver.setErrorReplyCode(DNSReplyCode::NoError);
+      dnsserver.setTTL(3600);
+      dnsserver.start(53, "*", local_IP);
       apmode=1;
   } else {
       Serial.println("Successful WiFi connect with stored values");
@@ -141,20 +148,27 @@ void setup() {
   Serial.println(WiFi.RSSI());
 
   if (apmode) {
-  server.on("/", []() {
-    server.send(200, "text/html", login_page);
-  });
-  server.on("/login", []() {
-    Serial.print("SSID:");
-    Serial.println(server.arg("ssid"));
-    ssid_len=urlDecode(server.arg("ssid").c_str(),mysets.ssid,64);
-    Serial.println(mysets.ssid);
-    Serial.print("Password:");
-    Serial.println(server.arg("pw"));
-    urlDecode(server.arg("pw").c_str(),mysets.pw,64);
-    pw_len=Serial.println(mysets.pw);
-    Serial.println(mysets.pw);
-  });
+    server.on("/", []() {
+      server.send(200, "text/html", login_page);
+    });
+    // Captive AP
+    server.on("/generate_204", []() { server.send(200, "text/html", login_page); });		   // android captive portal redirect
+    server.on("/redirect", []() { server.send(200, "text/html", login_page); });			   // microsoft redirect
+    server.on("/hotspot-detect.html", []() { server.send(200, "text/html", login_page); });  // apple call home
+    server.on("/canonical.html", []() { server.send(200, "text/html", login_page); });	   // firefox captive portal call home
+    server.on("/success.txt", []() { server.send(200, "text/html", login_page); });					   // firefox captive portal call home
+    server.on("/ncsi.txt", []() { server.send(200, "text/html", login_page); });			   // windows call home
+    server.on("/login", []() {
+      Serial.print("SSID:");
+      Serial.println(server.arg("ssid"));
+      ssid_len=urlDecode(server.arg("ssid").c_str(),mysets.ssid,64);
+      Serial.println(mysets.ssid);
+      Serial.print("Password:");
+      Serial.println(server.arg("pw"));
+      urlDecode(server.arg("pw").c_str(),mysets.pw,64);
+      pw_len=Serial.println(mysets.pw);
+      Serial.println(mysets.pw);
+    });
   } else {
     server.on("/", []() {
       server.send(200, "text/html", html_page);
@@ -332,12 +346,25 @@ int button=1;
 void loop() {
   if (apmode) {
     getCredentials();
+    dnsserver.processNextRequest();
+    gHue+=13;
+    CRGB col;
+    // To signal APMode flash on/off with rotating colors
+    if ((gHue%2)>0) {
+      col=CHSV( gHue, 255, 255);
+    } else {
+      col=CRGB(0,0,0);
+    }
+    Constant(col);
   }
   server.handleClient();
+
+  if (!apmode) {
 #ifdef ENABLE_DHT11
-  handle_dht11();
+    handle_dht11();
 #endif
-  handle_led();
+    handle_led();
+  }
 
   int bt=digitalRead(BUTTON_PIN);
   if (button!=bt) {
@@ -352,6 +379,8 @@ void loop() {
       initMode(mysets.mode);
       Serial.print("New mode:");
       Serial.println(mysets.mode);
+      //Hack: Pressing Button exits apmode
+      apmode=0;
     }
   }
 
@@ -401,9 +430,9 @@ void getCredentials() {
       Serial.println("Error connecting Wifi!");
     } else {
     Serial.println("Successfully registered new WiFi connection");
+    }
     EEPROM.put(0,mysets);
     EEPROM.commit();      
-    }
     ESP.restart();
   }
 }
@@ -461,7 +490,8 @@ void handle_led() {
     case 5: Constant(col); break;
     case 6: ConstantFade(col); break;
     case 7: sinelon(col); break;
-    case 8: Fire(0,-50);Fire(50,50);Fire(100,-50);Fire(150,50);Fire(200,-50); /*Fire(250,50);*/ break;
+    case 8: Fire(0,-50);Fire(50,50);Fire(100,-50);Fire(150,50);Fire(200,-50); 
+            if (NUM_LEDS>299) { Fire(250,50);} break;
     case 9: Multi(col,mysets.reverse==0?1:-1); break; // with faster settings
     case 10: pacifica_loop(); break;
     case 11: rainbow(); break;
